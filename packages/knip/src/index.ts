@@ -724,7 +724,8 @@ export const main = async (unresolvedConfiguration: CommandLineOptions) => {
 
             const exportMembers = [];
             for (const member of members) {
-              if (!ts.isPropertySignature(member)) continue;
+              // No point in checking required members, TS already flags those
+              if (!ts.isPropertySignature(member) || !member.questionToken) continue;
               exportMembers.push(
                 createMember(
                   declarationNodeAtPosition,
