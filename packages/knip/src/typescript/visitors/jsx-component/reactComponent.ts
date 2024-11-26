@@ -1,92 +1,88 @@
 import ts from 'typescript';
 import { FIX_FLAGS } from '../../../constants.js';
 import type { Fix } from '../../../types/exports.js';
-import { getDefaultKeywordNode, getExportKeywordNode } from '../../ast-helpers.js';
+import { getDefaultKeywordNode } from '../../ast-helpers.js';
 import { jsxComponentVisitor as visit } from '../index.js';
 
 export default visit(
   () => true,
   (node, { isFixComponentProps }) => {
-    const exportKeyword = getExportKeywordNode(node);
+    const getFix = (node: ts.Node, defaultKeyword?: ts.Node): Fix =>
+      isFixComponentProps ? [node.getStart(), (defaultKeyword ?? node).getEnd() + 1, FIX_FLAGS.NONE] : undefined;
 
-    if (exportKeyword) {
-      const getFix = (node: ts.Node, defaultKeyword?: ts.Node): Fix =>
-        isFixComponentProps ? [node.getStart(), (defaultKeyword ?? node).getEnd() + 1, FIX_FLAGS.NONE] : undefined;
-
-      if (ts.isVariableStatement(node)) {
-        return node.declarationList.declarations.flatMap(declaration => {
-          if (ts.isObjectBindingPattern(declaration.name)) {
-            return [];
-          }
-          if (ts.isArrayBindingPattern(declaration.name)) {
-            return [];
-          }
-
-          const props = findReactComponentProps(declaration);
-          if (props) {
-            const identifier = declaration.name.getText();
-            return {
-              node,
-              identifier,
-              propsPos: props.getStart(),
-              fix: getFix(node),
-            };
-          }
-
+    if (ts.isVariableStatement(node)) {
+      return node.declarationList.declarations.flatMap(declaration => {
+        if (ts.isObjectBindingPattern(declaration.name)) {
           return [];
-        });
-      }
+        }
+        if (ts.isArrayBindingPattern(declaration.name)) {
+          return [];
+        }
 
-      const defaultKeyword = getDefaultKeywordNode(node);
-      if (ts.isFunctionDeclaration(node)) {
-        const name = defaultKeyword ? 'default' : node.name?.getText();
-        if (
-          ts.isFunctionDeclaration(node) &&
-          (!node.name || isComponentName(node.name.getText())) &&
-          node.parameters.length >= 1 &&
-          ((ts.isIdentifier(node.parameters[0].name) && node.parameters[0].name.getText() === 'props') ||
-            ts.isObjectBindingPattern(node.parameters[0].name)) &&
-          node.parameters[0].type &&
-          ts.isTypeReferenceNode(node.parameters[0].type) &&
-          ts.isIdentifier(node.parameters[0].type.typeName)
-        ) {
-          // Declaration of type of the form `function Component(props: Something) {}`
-          // and `function Component({destructured, prop}:
-          const props = node.parameters[0].type.typeName;
-          if (props && name) {
-            return {
-              node,
-              identifier: name,
-              propsPos: props.getStart(),
-              fix: getFix(node),
-            };
-          }
+        const props = findReactComponentProps(declaration);
+        if (props) {
+          const identifier = declaration.name.getText();
+          return {
+            node,
+            identifier,
+            propsPos: props.getStart(),
+            fix: getFix(node),
+          };
+        }
+
+        return [];
+      });
+    }
+
+    const defaultKeyword = getDefaultKeywordNode(node);
+    if (ts.isFunctionDeclaration(node)) {
+      const name = defaultKeyword ? 'default' : node.name?.getText();
+      if (
+        ts.isFunctionDeclaration(node) &&
+        (!node.name || isComponentName(node.name.getText())) &&
+        node.parameters.length >= 1 &&
+        ((ts.isIdentifier(node.parameters[0].name) && node.parameters[0].name.getText() === 'props') ||
+          ts.isObjectBindingPattern(node.parameters[0].name)) &&
+        node.parameters[0].type &&
+        ts.isTypeReferenceNode(node.parameters[0].type) &&
+        ts.isIdentifier(node.parameters[0].type.typeName)
+      ) {
+        // Declaration of type of the form `function Component(props: Something) {}`
+        // and `function Component({destructured, prop}:
+        const props = node.parameters[0].type.typeName;
+        if (props && name) {
+          return {
+            node,
+            identifier: name,
+            propsPos: props.getStart(),
+            fix: getFix(node),
+          };
         }
       }
+    }
 
-      if (ts.isClassDeclaration(node) && node.name) {
-        if (ts.isIdentifier(node.name) && isComponentName(node.name.getText()) && node.heritageClauses?.length) {
-          for (const clause of node.heritageClauses) {
-            for (const type of clause.types) {
-              if (
-                ts.isExpressionWithTypeArguments(type) &&
-                ts.isPropertyAccessExpression(type.expression) &&
-                type.expression.expression.getText() === 'React' &&
-                ['Component', 'ComponentClass'].includes(type.expression.name.getText()) &&
-                type.typeArguments?.length &&
-                ts.isTypeReferenceNode(type.typeArguments[0]) &&
-                ts.isIdentifier(type.typeArguments[0].typeName)
-              ) {
-                const props = type.typeArguments[0].typeName;
-                const identifier = defaultKeyword ? 'default' : node.name.getText();
+    if (ts.isClassDeclaration(node) && node.name) {
+      if (ts.isIdentifier(node.name) && isComponentName(node.name.getText()) && node.heritageClauses?.length) {
+        for (const clause of node.heritageClauses) {
+          for (const type of clause.types) {
+            if (
+              ts.isExpressionWithTypeArguments(type) &&
+              ts.isPropertyAccessExpression(type.expression) &&
+              type.expression.expression.getText() === 'React' &&
+              ['Component', 'ComponentClass'].includes(type.expression.name.getText()) &&
+              type.typeArguments?.length &&
+              ts.isTypeReferenceNode(type.typeArguments[0]) &&
+              ts.isIdentifier(type.typeArguments[0].typeName)
+            ) {
+              const props = type.typeArguments[0].typeName;
+              const identifier = defaultKeyword ? 'default' : node.name.getText();
 
-                return {
-                  node,
-                  identifier,
-                  propsPos: props.getStart(),
-                  fix: getFix(node),
-                };
-              }
+              return {
+                node,
+                identifier,
+                propsPos: props.getStart(),
+                fix: getFix(node),
+              };
             }
           }
         }
